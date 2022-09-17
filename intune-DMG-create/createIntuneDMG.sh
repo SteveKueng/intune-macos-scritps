@@ -33,7 +33,9 @@ INFO_PLIST="$APP_PATH/Contents/Info.plist"
 ICON=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" "$INFO_PLIST")
 BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO_PLIST")
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO_PLIST")
+DEVELOPER=
 TMP_DIR="$(mktemp -d -t ci-XXXXXXXXXX)/$APP_NAME"
+
 
 echo -e "Prepare $APP_NAME..."
 
@@ -63,6 +65,7 @@ echo -e "${GREEN}"
 echo -e "Name:         $APP_NAME"
 echo -e "Bundle ID:    $BUNDLE_ID"
 echo -e "Version:      $VERSION"
+echo -e "Developer:    $DEVELOPER"
 echo -e "${NOCOLOR}"
 
 
