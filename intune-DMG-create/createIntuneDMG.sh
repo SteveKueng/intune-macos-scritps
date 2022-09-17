@@ -33,7 +33,7 @@ INFO_PLIST="$APP_PATH/Contents/Info.plist"
 ICON=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" "$INFO_PLIST")
 BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO_PLIST")
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO_PLIST")
-DEVELOPER=
+PUBLISHER=$(/usr/bin/codesign -dvvv $APP_NAME 2>&1 | grep "Authority=Developer ID Application:" | cut -d: -f2 | cut -d"(" -f1 | xargs)
 TMP_DIR="$(mktemp -d -t ci-XXXXXXXXXX)/$APP_NAME"
 
 
@@ -48,14 +48,17 @@ echo -e "Remove quarantine flag..."
 sudo xattr -r -d com.apple.quarantine "$TMP_DIR/$APP"
 
 #create output dir
-mkdir -p "$OUTPUT_PATH/${APP_NAME//[[:blank:]]/}"
+OUTPUT="$OUTPUT_PATH/${APP_NAME//[[:blank:]]/}"
+mkdir -p "$OUTPUT"
 
 #extract icon
-sips -s format png "$APP_PATH/Contents/Resources/$ICON" --out "$OUTPUT_PATH/${APP_NAME//[[:blank:]]/}/${APP_NAME//[[:blank:]]/}.png"
+ICON_FILE="${APP_NAME//[[:blank:]]/}.png"
+sips -s format png "$APP_PATH/Contents/Resources/$ICON" --out "$OUTPUT/$ICON_FILE"
 
 #create DMG
 echo -e "Create DMG..."
-sudo hdiutil create -volname ${APP_NAME//[[:blank:]]/} -srcfolder $TMP_DIR "$OUTPUT_PATH/${APP_NAME//[[:blank:]]/}/${APP_NAME//[[:blank:]]/}.dmg" > /dev/null 2>&1
+DMG=${APP_NAME//[[:blank:]]/}.dmg
+sudo hdiutil create -volname ${APP_NAME//[[:blank:]]/} -srcfolder $TMP_DIR "$OUTPUT/$DMG" > /dev/null 2>&1
 
 echo -e "Clean up..."
 rm -rf "$TMP_DIR"
@@ -65,9 +68,22 @@ echo -e "${GREEN}"
 echo -e "Name:         $APP_NAME"
 echo -e "Bundle ID:    $BUNDLE_ID"
 echo -e "Version:      $VERSION"
-echo -e "Developer:    $DEVELOPER"
+echo -e "Publisher:    $PUBLISHER"
 echo -e "${NOCOLOR}"
 
+json_data=$(cat <<EOF
+{
+    "displayName": "$APP_NAME",
+    "publisher": "$PUBLISHER",
+    "version": "$VERSION",
+    "bundle_id": "$BUNDLE_ID",
+    "logo": "$ICON_FILE",
+    "filenName": "$DMG"
+}
+EOF
+)
+
+echo $json_data > "$OUTPUT/info.json"
 
 # {
 #   "@odata.type": "#microsoft.graph.macOSDmgApp",
