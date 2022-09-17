@@ -25,7 +25,6 @@ from msgraph.core import GraphClient, APIVersion
 from random import randint
 import xml.dom.minidom
 
-
 VERSION = "1.0"
 PKGUTIL = "/usr/sbin/pkgutil"
 
@@ -187,14 +186,22 @@ def getMacOSLobApp(displayName, description, publisher, privacyInformationUrl, i
 
     return LobApp
 
+
+def getMobileAppContentFile(pkg_filename, pkg_file, pkg_file_encr):
+    mobileAppContentFile = {}
+    mobileAppContentFile["@odata.type"] = "#microsoft.graph.mobileAppContentFile"
+    mobileAppContentFile["name"] = pkg_filename
+    mobileAppContentFile["size"] = os.path.getsize(pkg_file)
+    mobileAppContentFile["sizeEncrypted"] = os.path.getsize(pkg_file_encr)
+    mobileAppContentFile["manifest"] = None
+    mobileAppContentFile["isDependency"] = False
+    return mobileAppContentFile
+
+
 def encryptPKG(pkg):
     encryptionKey = os.urandom(32)
     hmacKey = os.urandom(32)
     initializationVector = os.urandom(16)
-
-    #encryptionKey = base64.b64decode('V2dojhjfyl+yAji63AnjolWcBgt87mMO/FrMCdplO+Q=')
-    #hmacKey =  base64.b64decode('LbMiBqZeJA4DRp/PmvXj5mZAIk2p+oMq107Gx5+7e/8=')
-    #initializationVector =  base64.b64decode('8jdmtnxdIDKt1DLVas+VLA==')
     profileIdentifier = "ProfileVersion1"
     fileDigestAlgorithm = "SHA256"
 
@@ -321,19 +328,15 @@ def main():
             contentVersionsID = contentVersions['id']
             #print(contentVersionsID)
 
+            # encrypt file
             encrypted_data, fileEncryptionInfo = encryptPKG(pkg_file)
             new_file, filename = tempfile.mkstemp()
             with open(new_file, "wb") as binary_file:
                 # Write bytes to file
                 binary_file.write(encrypted_data)
 
-            mobileAppContentFile = {}
-            mobileAppContentFile["@odata.type"] = "#microsoft.graph.mobileAppContentFile"
-            mobileAppContentFile["name"] = pkg_filename
-            mobileAppContentFile["size"] = os.path.getsize(pkg_file)
-            mobileAppContentFile["sizeEncrypted"] = os.path.getsize(filename)
-            mobileAppContentFile["manifest"] = None
-            mobileAppContentFile["isDependency"] = False
+            # get mobileAppContentFile
+            mobileAppContentFile = getMobileAppContentFile(pkg_filename, pkg_file, filename)
 
             files_url = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.macOSLobApp/contentVersions/' + contentVersionsID + '/files'
             files_result = post(credentials, files_url, mobileAppContentFile)
@@ -376,9 +379,7 @@ def main():
                     while True:
                         read_data = stream.read(chunk_size)
                         if read_data == b'':
-                            #print('uploaded')
                             break
-                        #blob_client.append_block(read_data)
                         id = "block-" + format(index, "04")
                         
                         block_id = base64.b64encode(id.encode()).decode()
