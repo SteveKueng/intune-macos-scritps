@@ -1,4 +1,3 @@
 pyperclip
 msgraph-core
 azure-identity
-webbrowser

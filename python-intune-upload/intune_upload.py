@@ -1,4 +1,4 @@
-#!/usr/local/bin/python
+#!/usr/bin/env python3
 
 import os
 import sys
@@ -8,20 +8,26 @@ import optparse
 import webbrowser
 import pyperclip
 import requests
+import hmac
+import base64
+import hashlib
 import tempfile
-import shutil
 import subprocess
-import xml.etree.ElementTree as ET
+import shutil
+import readline
 
-from zipfile import ZipFile
-from cProfile import run
+from time import sleep
+from pathlib import Path
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
 from azure.identity import DeviceCodeCredential
 from msgraph.core import GraphClient, APIVersion
+from random import randint
+import xml.dom.minidom
 
 
 VERSION = "1.0"
-TEMPDIR = tempfile.mkdtemp()
-
+PKGUTIL = "/usr/sbin/pkgutil"
 
 def readPlistFromString(data):
     '''Wrapper for the differences between Python 2 and Python 3's plistlib'''
@@ -97,48 +103,18 @@ def read_build_info(path):
             '${version}',
             str(build_info['version'])
         )
-
     return build_info
-
-
-def run_subprocess(cmd):
-    '''Runs cmd with Popen'''
-    proc = subprocess.Popen(
-        cmd,
-        shell=False,
-        universal_newlines=True,
-        bufsize=1,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-    proc_stdout, proc_stderr = proc.communicate()
-    retcode = proc.returncode
-    return (retcode, proc_stdout, proc_stderr)
-
-
-def getIntuneWrapper():
-    url = "https://raw.githubusercontent.com/msintuneappsdk/intune-app-wrapping-tool-mac/master/IntuneAppUtil"
-    r = requests.get(url)
-    with open(TEMPDIR + '/IntuneAppUtil', 'wb') as f:
-        f.write(r.content)
-    return f
-
-
-def cleanUp():
-    shutil.rmtree(TEMPDIR)
-
-
-def buildIntuneMac(cmd):
-    retcode, proc_stdout, proc_stderr = run_subprocess(cmd)
-
-    if retcode:
-        print("FAILURE " + proc_stderr, file=sys.stderr)
-        raise OSError("Intunemac failed")
-    else:
-        print(proc_stdout)
     
+
+def input_with_prefill(prompt, text):
+    def hook():
+        readline.insert_text(text)
+        readline.redisplay()
+    readline.set_pre_input_hook(hook)
+    result = input(prompt)
+    readline.set_pre_input_hook()
+    return result
+
 
 def authpromt(verification_uri, user_code, expires_on):
     print("Use the following code (copied to clipboard): " + user_code)
@@ -161,9 +137,108 @@ def get(client, url):
 
 def post(client, url, body):
     """HTTP POST request using the GraphClient"""
+    #print(json.dumps(body))
     return client.post(url,
             data=json.dumps(body),
             headers={'Content-Type': 'application/json'})
+
+
+def patch(client, url, body):
+    """HTTP POST request using the GraphClient"""
+    #print(json.dumps(body))
+    return client.patch(url,
+            data=json.dumps(body),
+            headers={'Content-Type': 'application/json'})
+
+
+def getChildApp(bundleID, build, version):
+    childApp = {}
+    childApp["@odata.type"] = "#microsoft.graph.macOSLobChildApp"
+    childApp["bundleId"] = bundleID
+    childApp["buildNumber"] = build
+    childApp["versionNumber"] = version
+    return childApp
+
+
+def getMacOSLobApp(displayName, description, publisher, privacyInformationUrl, informationUrl, owner, developer, notes, fileName, bundleId, buildNumber, versionNumber, childApps, ignoreVersionDetection = True, installAsManaged = False):
+    LobApp = {}
+    LobApp["@odata.type"] = "#microsoft.graph.macOSLobApp"
+    LobApp["displayName"] = displayName
+    LobApp["description"] = description
+    LobApp["publisher"] = publisher
+    LobApp["privacyInformationUrl"] = privacyInformationUrl
+    LobApp["informationUrl"] = informationUrl
+    LobApp["owner"] = owner
+    LobApp["developer"] = developer
+    LobApp["notes"] = notes
+    LobApp["fileName"] = fileName
+    LobApp["bundleId"] = bundleId
+    LobApp["buildNumber"] = buildNumber
+    LobApp["versionNumber"] = versionNumber
+    LobApp["ignoreVersionDetection"] = ignoreVersionDetection
+    LobApp["installAsManaged"] = installAsManaged
+    LobApp["minimumSupportedOperatingSystem"] = {}
+    LobApp["minimumSupportedOperatingSystem"]["@odata.type"] = "#microsoft.graph.macOSMinimumOperatingSystem"
+    LobApp["minimumSupportedOperatingSystem"]["v11_0"] = True
+    LobApp["childApps"] = []
+
+    for childApp in childApps:
+        LobApp["childApps"].append(childApp)
+
+    return LobApp
+
+def encryptPKG(pkg):
+    encryptionKey = os.urandom(32)
+    hmacKey = os.urandom(32)
+    initializationVector = os.urandom(16)
+
+    #encryptionKey = base64.b64decode('V2dojhjfyl+yAji63AnjolWcBgt87mMO/FrMCdplO+Q=')
+    #hmacKey =  base64.b64decode('LbMiBqZeJA4DRp/PmvXj5mZAIk2p+oMq107Gx5+7e/8=')
+    #initializationVector =  base64.b64decode('8jdmtnxdIDKt1DLVas+VLA==')
+    profileIdentifier = "ProfileVersion1"
+    fileDigestAlgorithm = "SHA256"
+
+    with open(pkg, "rb") as f:
+        plaintext = f.read()
+
+    data = pad(plaintext, AES.block_size)
+    cypher = AES.new(encryptionKey, AES.MODE_CBC, initializationVector)
+    encrypted_data = cypher.encrypt(data)
+    iv_data = initializationVector + encrypted_data
+    h_mac = hmac.new(hmacKey, iv_data, hashlib.sha256).digest()
+    mac = base64.b64encode(h_mac).decode()
+
+    filebytes = Path(pkg).read_bytes()
+    filehash_sha256 = hashlib.sha256(filebytes)
+    fileDigest = base64.b64encode(filehash_sha256.digest()).decode()
+
+    fileEncryptionInfo = {}
+    fileEncryptionInfo["@odata.type"] = "#microsoft.graph.fileEncryptionInfo"
+    fileEncryptionInfo["encryptionKey"] = base64.b64encode(encryptionKey).decode()
+    fileEncryptionInfo["macKey"] = base64.b64encode(hmacKey).decode()
+    fileEncryptionInfo["initializationVector"] = base64.b64encode(initializationVector).decode()
+    fileEncryptionInfo["profileIdentifier"] = profileIdentifier
+    fileEncryptionInfo["fileDigestAlgorithm"] = fileDigestAlgorithm
+    fileEncryptionInfo["fileDigest"] = fileDigest
+    fileEncryptionInfo["mac"] = mac
+    return (h_mac + iv_data, fileEncryptionInfo)
+
+
+def getPKGInfo(pkg_path):
+    tmp_path = tempfile.mkdtemp()
+    pkg_name = Path(pkg_path).stem
+    dir_path = tmp_path + "/" + pkg_name
+
+    cmd = [PKGUTIL, '--expand', pkg_path, dir_path]
+    retcode = subprocess.call(cmd)
+    if retcode:
+        print("Expand failed {retcode}")
+        shutil.rmtree(tmp_path)
+        sys.exit(1)
+
+    tree = xml.dom.minidom.parse(dir_path + "/Distribution")
+    shutil.rmtree(tmp_path)
+    return tree
 
 
 def main():
@@ -171,8 +246,6 @@ def main():
     usage = """usage: %prog [options] pkg_project_directory
        A tool for uploading a package to microsoft intune"""
     parser = optparse.OptionParser(usage=usage, version=VERSION)
-    parser.add_option('--skip-intunemac', action='store_true',
-                      help='Skips building of intunemac file ')
     options, arguments = parser.parse_args()
     
     if not arguments:
@@ -184,53 +257,181 @@ def main():
               file=sys.stderr)
         sys.exit(-1)
 
-    #build intunemac
+    #check if file is PKG
     pkg_file = arguments[0]
     if not pkg_file.endswith(".pkg"):
         print(pkg_file + " is not a PKG")
         sys.exit(1)
 
-    output_dir = os.path.dirname(pkg_file)
-    intuneWrapper = getIntuneWrapper()
-    os.chmod(intuneWrapper.name , 0o755)
-    cmd = [intuneWrapper.name, "-c", pkg_file, "-o", output_dir]
-
-    os.remove(pkg_file + ".intunemac")
-    retcode, proc_stdout, proc_stderr = run_subprocess(cmd)
-
-    if retcode > 0:
-        print(retcode)
-        print(proc_stderr)
-        sys.exit(1)
-
-    #print(proc_stdout)
+    credentials = getCredentials()
     
-    #get app info
-    appName = ""
-    appDescription = ""
-    appPublisher = ""
-    appMinimumOperatingSystem = ""
-    appIgnoreAppVersion = True
-    appInstallAsManaged = False
-    appIncludedApps = []
-    appCategory = []
-    appFeatured = False
-    appInformationURL = ""
-    appPrivacyURL = ""
-    appDeveloper = ""
-    appOwner = ""
-    appNotes = ""
-    appLogo = ""
+    pkg_filename = Path(pkg_file).name
+    pkg_title = ""
+    pkg_description = ""
+    pkg_publisher = ""
+    pkg_version = ""
+    pkg_build = ""
+    pkg_buildID = ""
+    pkg_privacyInformationUrl = ""
+    pkg_informationUrl = ""
+    pkg_owner = ""
+    pkg_developer = ""
+    pkg_notes = ""
+    pkg_ignoreAppVersion = True
+    pkg_installAsManaged = False
+    childApps = []
 
-    #upload app
-    # credentials = getCredentials()
-    # result = get(credentials, '/deviceAppManagement/mobileApps')
-    # apps = result.json()['value']
-    # for app in apps:
-    #     print(app)
+    distribution_file = getPKGInfo(pkg_file)
+    title_list = distribution_file.getElementsByTagName("title")
+    if len(title_list) > 0:
+        pkg_title = title_list[0].firstChild.nodeValue
 
-    cleanUp()
+    pkg_ref = distribution_file.getElementsByTagName("pkg-ref")
+    for item in pkg_ref:
+        if item.getAttribute("packageIdentifier"):
+            pkg_buildID = item.getAttribute("packageIdentifier")
+            pkg_version = item.getAttribute("version")
+            pkg_build = item.getAttribute("version")
+            childApps.append(getChildApp(pkg_buildID, pkg_version, pkg_version))
 
+    pkg_title = input_with_prefill("name: ", pkg_title)
+    pkg_description = input_with_prefill("discrition: ", pkg_description)
+    pkg_publisher = input_with_prefill("publisher: ", pkg_publisher)
+    pkg_version = input_with_prefill("version: ", pkg_version)
+    pkg_build = input_with_prefill("build: ", pkg_build)
+    pkg_buildID = input_with_prefill("package identifier: ", pkg_buildID)
+    pkg_ignoreAppVersion = input_with_prefill("ignoreAppVersion: ", str(pkg_ignoreAppVersion)) == "True"
+    pkg_installAsManaged = input_with_prefill("installAsManaged: ", str(pkg_installAsManaged)) == "True"
+
+    macOSLobApp = getMacOSLobApp(pkg_title, pkg_description, pkg_publisher, pkg_privacyInformationUrl, pkg_informationUrl, pkg_owner, pkg_developer, pkg_notes, pkg_filename, pkg_buildID, pkg_build, pkg_version, childApps, pkg_ignoreAppVersion, pkg_installAsManaged)
+    mobildeapp_result = post(credentials, '/deviceAppManagement/mobileApps', macOSLobApp)
+    #print(mobildeapp_result)
+    if mobildeapp_result.status_code == 201:
+        content_json = mobildeapp_result._content.decode('utf8').replace("'", '"')
+        content = json.loads(content_json)
+        appID = content['id']
+        #print(appID)
+        
+        url = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.macOSLobApp/contentVersions'
+        contentVersions_result = post(credentials, url, {})
+        #print(contentVersions_result)
+        if contentVersions_result.status_code == 201:
+            contentVersions_json = contentVersions_result._content.decode('utf8').replace("(\"", '(\\"').replace("\")", '\\")')
+            contentVersions = json.loads(contentVersions_json)
+            contentVersionsID = contentVersions['id']
+            #print(contentVersionsID)
+
+            encrypted_data, fileEncryptionInfo = encryptPKG(pkg_file)
+            new_file, filename = tempfile.mkstemp()
+            with open(new_file, "wb") as binary_file:
+                # Write bytes to file
+                binary_file.write(encrypted_data)
+
+            mobileAppContentFile = {}
+            mobileAppContentFile["@odata.type"] = "#microsoft.graph.mobileAppContentFile"
+            mobileAppContentFile["name"] = pkg_filename
+            mobileAppContentFile["size"] = os.path.getsize(pkg_file)
+            mobileAppContentFile["sizeEncrypted"] = os.path.getsize(filename)
+            mobileAppContentFile["manifest"] = None
+            mobileAppContentFile["isDependency"] = False
+
+            files_url = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.macOSLobApp/contentVersions/' + contentVersionsID + '/files'
+            files_result = post(credentials, files_url, mobileAppContentFile)
+            #print(files_result)
+            if files_result.status_code == 201:
+                files_json = files_result._content.decode('utf8').replace("(\"", '(\\"').replace("\")", '\\")')
+                files_content = json.loads(files_json)
+                #print(files_content)
+                
+                files_contentID = files_content['id']
+                files_url = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.macOSLobApp/contentVersions/' + contentVersionsID + '/files/' + files_contentID
+                
+                attempts = 20
+                while attempts > 0:
+                    file = get(credentials, files_url)
+                    file_json = file._content.decode('utf8').replace("(\"", '(\\"').replace("\")", '\\")')
+                    file_content = json.loads(file_json)
+                    #print(file_content)
+                    if file_content["uploadState"] == "azureStorageUriRequestSuccess":
+                        break
+                    if file_content["uploadState"] == "azureStorageUriRequestFailed":
+                        print("azureStorageUriRequestFailed failed")
+                        sys.exit(1)
+
+                    sleep(10)
+                    attempts-=1
+
+                if file_content["uploadState"] != "azureStorageUriRequestSuccess":
+                    print("File request did not complete in the allotted time.")
+                    sys.exit(1)
+
+                azureStorageUri = file_content["azureStorageUri"]
+                chunk_size=6*1024*1024
+                headers = {
+                    'x-ms-blob-type': 'BlockBlob'
+                }
+                block_ids = []
+                index = 0
+                with open(filename, "rb") as stream:
+                    while True:
+                        read_data = stream.read(chunk_size)
+                        if read_data == b'':
+                            #print('uploaded')
+                            break
+                        #blob_client.append_block(read_data)
+                        id = "block-" + format(index, "04")
+                        
+                        block_id = base64.b64encode(id.encode()).decode()
+                        block_ids.append(block_id)
+                        uri = azureStorageUri + "&comp=block&blockid=" + block_id    
+                        r = requests.put(uri, headers=headers, data=read_data.decode('iso-8859-1'))
+                        print(r.status_code)
+                        index += 1
+                
+                headers = {'Content-Type': 'application/xml'}   
+                uri = azureStorageUri + "&comp=blocklist"
+                xml = """<?xml version="1.0" encoding="utf-8"?><BlockList>"""
+                for id in block_ids:
+                    xml += "<Latest>" + id + "</Latest>"
+                xml += """</BlockList>"""
+                r = requests.put(uri, headers=headers, data=xml)
+                print(r.status_code)
+                
+                os.unlink(filename)
+
+                commitData = {}
+                commitData["fileEncryptionInfo"] = fileEncryptionInfo
+                commitFileUri = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.macOSLobApp/contentVersions/' + contentVersionsID + '/files/' + files_contentID + "/commit"
+                commitFile = post(credentials, commitFileUri, commitData)
+
+                files_url = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.macOSLobApp/contentVersions/' + contentVersionsID + '/files/' + files_contentID
+                attempts = 20
+                while attempts > 0:
+                    file = get(credentials, files_url)
+                    file_json = file._content.decode('utf8').replace("(\"", '(\\"').replace("\")", '\\")')
+                    file_content = json.loads(file_json)
+                    if file_content["uploadState"] == "commitFileSuccess":
+                        break
+                    if file_content["uploadState"] == "commitFileFailed":
+                        print("File request failed")
+                        sys.exit(1)
+
+                    sleep(10)
+                    attempts-=1
+
+                if file_content["uploadState"] != "commitFileSuccess":
+                    print("File request did not complete in the allotted time.")
+                    sys.exit(1)
+
+                commitAppBody = {}
+                commitAppBody["@odata.type"] = "#microsoft.graph.macOSLobApp"
+                commitAppBody["committedContentVersion"] = contentVersionsID
+
+                files_url = '/deviceAppManagement/mobileApps/' + appID
+                commitApp_result = patch(credentials, files_url, commitAppBody)
+                print(commitApp_result)
+
+                sleep(5)
 
 if __name__ == '__main__':
     main()
