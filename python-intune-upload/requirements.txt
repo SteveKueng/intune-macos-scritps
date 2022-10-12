@@ -1,3 +1,4 @@
+requests
 pyperclip
 msgraph-core
 azure-identity
