@@ -21,7 +21,7 @@ else
     exit 0
 fi
 
-OUTPUT_PATH=$(pwd)
+OUTPUT_PATH=$(dirname "$APP_PATH")
 if [ -n "$2" ]; then
     OUTPUT_PATH=$2
 fi
@@ -33,9 +33,8 @@ INFO_PLIST="$APP_PATH/Contents/Info.plist"
 ICON=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" "$INFO_PLIST")
 BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO_PLIST")
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO_PLIST")
-PUBLISHER=$(/usr/bin/codesign -dvvv $APP_NAME 2>&1 | grep "Authority=Developer ID Application:" | cut -d: -f2 | cut -d"(" -f1 | xargs)
+PUBLISHER=$(/usr/bin/codesign -dvvv $APP_PATH 2>&1 | grep "Authority=Developer ID Application:" | cut -d: -f2 | cut -d"(" -f1 | xargs)
 TMP_DIR="$(mktemp -d -t ci-XXXXXXXXXX)/$APP_NAME"
-
 
 echo -e "Prepare $APP_NAME..."
 
