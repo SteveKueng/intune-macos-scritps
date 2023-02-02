@@ -14,7 +14,7 @@ import hashlib
 import tempfile
 import subprocess
 import shutil
-import readline
+import glob
 
 from time import sleep
 from pathlib import Path
@@ -24,9 +24,15 @@ from azure.identity import DeviceCodeCredential
 from msgraph.core import GraphClient, APIVersion
 from random import randint
 import xml.dom.minidom
+import gnureadline as readline
 
 VERSION = "1.0"
 PKGUTIL = "/usr/sbin/pkgutil"
+HDIUTIL = "/usr/bin/hdiutil"
+
+def cls():
+    os.system('cls' if os.name=='nt' else 'clear')
+
 
 def readPlistFromString(data):
     '''Wrapper for the differences between Python 2 and Python 3's plistlib'''
@@ -119,7 +125,7 @@ def authpromt(verification_uri, user_code, expires_on):
     print("Use the following code (copied to clipboard): " + user_code)
     pyperclip.copy(user_code)
     print(verification_uri)
-    webbrowser.open(verification_uri, new=1)
+    webbrowser.open(verification_uri, new=2)
 
     
 def getCredentials():
@@ -159,7 +165,15 @@ def getChildApp(bundleID, build, version):
     return childApp
 
 
-def getMacOSLobApp(displayName, description, publisher, privacyInformationUrl, informationUrl, owner, developer, notes, fileName, bundleId, buildNumber, versionNumber, childApps, ignoreVersionDetection = True, installAsManaged = False):
+def getIncludedApp(bundleID, version):
+    includedApp = {}
+    includedApp["@odata.type"] = "#microsoft.graph.macOSIncludedApp"
+    includedApp["bundleId"] = bundleID
+    includedApp["bundleVersion"] = version
+    return includedApp
+
+
+def getMacOSLobApp(displayName, description, publisher, privacyInformationUrl, informationUrl, owner, developer, notes, fileName, bundleId, buildNumber, versionNumber, childApps, ignoreVersionDetection = True, installAsManaged = False, icon = None):
     LobApp = {}
     LobApp["@odata.type"] = "#microsoft.graph.macOSLobApp"
     LobApp["displayName"] = displayName
@@ -184,7 +198,51 @@ def getMacOSLobApp(displayName, description, publisher, privacyInformationUrl, i
     for childApp in childApps:
         LobApp["childApps"].append(childApp)
 
+    if icon:
+        LobApp["largeIcon"] = {}
+        LobApp["largeIcon"]["@odata.type"] = "#microsoft.graph.mimeContent"
+        LobApp["largeIcon"]["type"] = "image/png"
+
+        with open(icon, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read())
+        LobApp["largeIcon"]["value"] = encoded_string.decode('utf-8')
+
     return LobApp
+
+
+def getMacOSDmgApp(displayName, description, publisher, privacyInformationUrl, informationUrl, owner, developer, notes, fileName, bundleId, buildNumber, includedApps, ignoreVersionDetection = True, icon = None):
+    DmgApp = {}
+    DmgApp["@odata.type"] = "#microsoft.graph.macOSDmgApp"
+    DmgApp["displayName"] = displayName
+    DmgApp["description"] = description
+    DmgApp["publisher"] = publisher
+    DmgApp["privacyInformationUrl"] = privacyInformationUrl
+    DmgApp["informationUrl"] = informationUrl
+    DmgApp["owner"] = owner
+    DmgApp["developer"] = developer
+    DmgApp["notes"] = notes
+    DmgApp["fileName"] = fileName
+    DmgApp["primaryBundleId"] = bundleId
+    DmgApp["primaryBundleVersion"] = buildNumber
+    DmgApp["ignoreVersionDetection"] = ignoreVersionDetection
+    DmgApp["minimumSupportedOperatingSystem"] = {}
+    DmgApp["minimumSupportedOperatingSystem"]["@odata.type"] = "#microsoft.graph.macOSMinimumOperatingSystem"
+    DmgApp["minimumSupportedOperatingSystem"]["v11_0"] = True
+    DmgApp["includedApps"] = []
+
+    for includedApp in includedApps:
+        DmgApp["includedApps"].append(includedApp)
+    
+    if icon:
+        DmgApp["largeIcon"] = {}
+        DmgApp["largeIcon"]["@odata.type"] = "#microsoft.graph.mimeContent"
+        DmgApp["largeIcon"]["type"] = "image/png"
+
+        with open(icon, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read())
+        DmgApp["largeIcon"]["value"] = encoded_string.decode('utf-8')
+
+    return DmgApp
 
 
 def getMobileAppContentFile(pkg_filename, pkg_file, pkg_file_encr):
@@ -248,6 +306,28 @@ def getPKGInfo(pkg_path):
     return tree
 
 
+def mountDMG(dmg_path):
+    tmp_path = tempfile.mkdtemp()
+    dmg_name = Path(dmg_path).stem
+    dir_path = tmp_path + "/" + dmg_name
+
+    cmd = [HDIUTIL, 'attach', '-mountpoint', dir_path, dmg_path]
+    retcode = subprocess.call(cmd)
+    if retcode:
+        print("Mount failed {retcode}")
+        shutil.rmtree(tmp_path)
+        sys.exit(1)
+    return dir_path
+
+
+def unmountDMG(dmg_path):
+    cmd = [HDIUTIL, 'detach', dmg_path]
+    retcode = subprocess.call(cmd)
+    if retcode:
+        print("Unmount failed {retcode}")
+        sys.exit(1)
+
+
 def main():
     '''Main'''
     usage = """usage: %prog [options] pkg_project_directory
@@ -264,14 +344,14 @@ def main():
               file=sys.stderr)
         sys.exit(-1)
 
-    #check if file is PKG
-    pkg_file = arguments[0]
-    if not pkg_file.endswith(".pkg"):
-        print(pkg_file + " is not a PKG")
+    #check if file is PKG or DMG
+    pkg_file = os.path.abspath(arguments[0])
+    if not pkg_file.endswith(".pkg") and not pkg_file.endswith(".dmg"):
+        print(pkg_file + " is not a PKG or a DMG")
         sys.exit(1)
 
     credentials = getCredentials()
-    
+
     pkg_filename = Path(pkg_file).name
     pkg_title = ""
     pkg_description = ""
@@ -286,31 +366,116 @@ def main():
     pkg_notes = ""
     pkg_ignoreAppVersion = True
     pkg_installAsManaged = False
+    pkg_icon = None
     childApps = []
 
-    distribution_file = getPKGInfo(pkg_file)
-    title_list = distribution_file.getElementsByTagName("title")
-    if len(title_list) > 0:
-        pkg_title = title_list[0].firstChild.nodeValue
+    # get info from pkg
+    if pkg_file.endswith(".pkg"):
+        distribution_file = getPKGInfo(pkg_file)
+        title_list = distribution_file.getElementsByTagName("title")
+        if len(title_list) > 0:
+            pkg_title = title_list[0].firstChild.nodeValue
 
-    pkg_ref = distribution_file.getElementsByTagName("pkg-ref")
-    for item in pkg_ref:
-        if item.getAttribute("packageIdentifier"):
-            pkg_buildID = item.getAttribute("packageIdentifier")
-            pkg_version = item.getAttribute("version")
-            pkg_build = item.getAttribute("version")
-            childApps.append(getChildApp(pkg_buildID, pkg_version, pkg_version))
+        #get info from json file if it exists in same directory or parent directory
+        source_file_dir = os.path.dirname(pkg_file) 
+        json_file = glob.glob(source_file_dir + "/*.json") + glob.glob(str(Path(source_file_dir).parents[0]) + "/*.json")
+        if len(json_file) > 0:
+            json_file = json_file[0]
+            json_content = json.load(open(json_file))
+            pkg_title = json_content.get("displayName")
+            pkg_description = json_content.get("description")
+            pkg_publisher = json_content.get("publisher")
+            pkg_version = json_content.get("version")
+            pkg_buildID = json_content.get("bundle_id")
+            pkg_privacyInformationUrl = json_content.get("privacy_url")
+            pkg_informationUrl = json_content.get("info_url")
+            pkg_owner = json_content.get("owner")
+            pkg_developer = json_content.get("developer")
+            pkg_notes = json_content.get("notes")
+            pkg_ignoreAppVersion = json_content.get("ignoreAppVersion", True)
+            pkg_installAsManaged = json_content.get("installAsManaged", False)
+            pkg_icon = json_content.get("logo")
 
+        pkg_ref = distribution_file.getElementsByTagName("pkg-ref")
+        for item in pkg_ref:
+            if item.getAttribute("packageIdentifier"):
+                pkg_buildID = item.getAttribute("packageIdentifier")
+                pkg_version = item.getAttribute("version")
+                pkg_build = item.getAttribute("version")
+                childApps.append(getChildApp(pkg_buildID, pkg_version, pkg_version))
+    
+    # get info from dmg
+    if pkg_file.endswith(".dmg"):
+        mounted_dmg_path = mountDMG(pkg_file)
+        app_path = glob.glob(mounted_dmg_path + "/*.app")[0]
+
+        plist_file = app_path + "/Contents/Info.plist"
+        plist = readPlist(plist_file)
+
+        unmountDMG(mounted_dmg_path)
+
+        pkg_title = plist.get("CFBundleName")
+        pkg_version = plist.get("CFBundleShortVersionString")
+        pkg_build = plist.get("CFBundleVersion")
+        pkg_buildID = plist.get("CFBundleIdentifier")
+
+        #get info from json
+        source_file_dir = os.path.dirname(pkg_file) 
+        json_file = glob.glob(source_file_dir + "/*.json")
+        if len(json_file) > 0:
+            json_file = json_file[0]
+            json_content = json.load(open(json_file))
+            pkg_title = json_content.get("displayName")
+            pkg_description = json_content.get("description")
+            pkg_publisher = json_content.get("publisher")
+            pkg_version = json_content.get("version")
+            pkg_buildID = json_content.get("bundle_id")
+            pkg_privacyInformationUrl = json_content.get("privacy_url")
+            pkg_informationUrl = json_content.get("info_url")
+            pkg_owner = json_content.get("owner")
+            pkg_developer = json_content.get("developer")
+            pkg_notes = json_content.get("notes")
+            pkg_ignoreAppVersion = json_content.get("ignoreAppVersion", True)
+            pkg_installAsManaged = json_content.get("installAsManaged", False)
+            pkg_icon = json_content.get("logo")
+
+        childApps.append(getIncludedApp(pkg_buildID, pkg_version))
+
+    # clear screen
+    cls()
+
+    # print info
+    print("#########")
+    print("")
+
+    # get user input
     pkg_title = input_with_prefill("name: ", pkg_title)
-    pkg_description = input_with_prefill("discrition: ", pkg_description)
+    pkg_description = input_with_prefill("discription: ", pkg_description)
     pkg_publisher = input_with_prefill("publisher: ", pkg_publisher)
     pkg_version = input_with_prefill("version: ", pkg_version)
+    pkg_icon = input_with_prefill("icon: ", pkg_icon)
     pkg_build = input_with_prefill("build: ", pkg_build)
     pkg_buildID = input_with_prefill("package identifier: ", pkg_buildID)
     pkg_ignoreAppVersion = input_with_prefill("ignoreAppVersion: ", str(pkg_ignoreAppVersion)) == "True"
-    pkg_installAsManaged = input_with_prefill("installAsManaged: ", str(pkg_installAsManaged)) == "True"
+    pkg_installAsManaged = input_with_prefill("installAsManaged: ", str(pkg_installAsManaged)) == "False"
 
-    macOSLobApp = getMacOSLobApp(pkg_title, pkg_description, pkg_publisher, pkg_privacyInformationUrl, pkg_informationUrl, pkg_owner, pkg_developer, pkg_notes, pkg_filename, pkg_buildID, pkg_build, pkg_version, childApps, pkg_ignoreAppVersion, pkg_installAsManaged)
+    while input("Do you want to start upload? [y/n]: ") != "y":
+        sys.exit(0)
+
+    # get icon 
+    if pkg_icon:
+        icon_list = glob.glob(source_file_dir + "/" + pkg_icon) + glob.glob(str(Path(source_file_dir).parents[0]) + "/" + pkg_icon)
+        if len(icon_list) > 0:
+            pkg_icon = icon_list[0]
+        else:
+            pkg_icon = None
+
+    if pkg_file.endswith(".pkg"):
+        macOSLobApp = getMacOSLobApp(pkg_title, pkg_description, pkg_publisher, pkg_privacyInformationUrl, pkg_informationUrl, pkg_owner, pkg_developer, pkg_notes, pkg_filename, pkg_buildID, pkg_build, pkg_version, childApps, pkg_ignoreAppVersion, pkg_installAsManaged, pkg_icon)
+    
+    if pkg_file.endswith(".dmg"):
+        macOSLobApp = getMacOSDmgApp(pkg_title, pkg_description, pkg_publisher, pkg_privacyInformationUrl, pkg_informationUrl, pkg_owner, pkg_developer, pkg_notes, pkg_filename, pkg_buildID, pkg_version, childApps, pkg_ignoreAppVersion, pkg_icon)
+    
     mobildeapp_result = post(credentials, '/deviceAppManagement/mobileApps', macOSLobApp)
     #print(mobildeapp_result)
     if mobildeapp_result.status_code == 201:
@@ -319,7 +484,7 @@ def main():
         appID = content['id']
         #print(appID)
         
-        url = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.macOSLobApp/contentVersions'
+        url = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.mobileLobApp/contentVersions'
         contentVersions_result = post(credentials, url, {})
         #print(contentVersions_result)
         if contentVersions_result.status_code == 201:
@@ -338,7 +503,7 @@ def main():
             # get mobileAppContentFile
             mobileAppContentFile = getMobileAppContentFile(pkg_filename, pkg_file, filename)
 
-            files_url = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.macOSLobApp/contentVersions/' + contentVersionsID + '/files'
+            files_url = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.mobileLobApp/contentVersions/' + contentVersionsID + '/files'
             files_result = post(credentials, files_url, mobileAppContentFile)
             #print(files_result)
             if files_result.status_code == 201:
@@ -347,7 +512,7 @@ def main():
                 #print(files_content)
                 
                 files_contentID = files_content['id']
-                files_url = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.macOSLobApp/contentVersions/' + contentVersionsID + '/files/' + files_contentID
+                files_url = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.mobileLobApp/contentVersions/' + contentVersionsID + '/files/' + files_contentID
                 
                 attempts = 20
                 while attempts > 0:
@@ -386,7 +551,8 @@ def main():
                         block_ids.append(block_id)
                         uri = azureStorageUri + "&comp=block&blockid=" + block_id    
                         r = requests.put(uri, headers=headers, data=read_data.decode('iso-8859-1'))
-                        print(r.status_code)
+                        #print(uri)
+                        #print(r.status_code)
                         index += 1
                 
                 headers = {'Content-Type': 'application/xml'}   
@@ -396,16 +562,18 @@ def main():
                     xml += "<Latest>" + id + "</Latest>"
                 xml += """</BlockList>"""
                 r = requests.put(uri, headers=headers, data=xml)
-                print(r.status_code)
+                #print(uri)
+                #print(r.status_code)
                 
                 os.unlink(filename)
 
                 commitData = {}
                 commitData["fileEncryptionInfo"] = fileEncryptionInfo
-                commitFileUri = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.macOSLobApp/contentVersions/' + contentVersionsID + '/files/' + files_contentID + "/commit"
+                commitFileUri = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.mobileLobApp/contentVersions/' + contentVersionsID + '/files/' + files_contentID + "/commit"
                 commitFile = post(credentials, commitFileUri, commitData)
+                #print(commitFile)
 
-                files_url = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.macOSLobApp/contentVersions/' + contentVersionsID + '/files/' + files_contentID
+                files_url = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.mobileLobApp/contentVersions/' + contentVersionsID + '/files/' + files_contentID
                 attempts = 20
                 while attempts > 0:
                     file = get(credentials, files_url)
@@ -430,7 +598,7 @@ def main():
 
                 files_url = '/deviceAppManagement/mobileApps/' + appID
                 commitApp_result = patch(credentials, files_url, commitAppBody)
-                print(commitApp_result)
+                #print(commitApp_result)
 
                 sleep(5)
 
