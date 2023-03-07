@@ -477,21 +477,17 @@ def main():
         macOSLobApp = getMacOSDmgApp(title, description, publisher, privacyInformationUrl, informationUrl, owner, developer, notes, filename, buildID, version, childApps, ignoreAppVersion, icon)
     
     mobildeapp_result = post(credentials, '/deviceAppManagement/mobileApps', macOSLobApp)
-    #print(mobildeapp_result)
     if mobildeapp_result.status_code == 201:
         content_json = mobildeapp_result._content.decode('utf8').replace("'", '"')
         content = json.loads(content_json)
         appID = content['id']
-        #print(appID)
         
         url = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.mobileLobApp/contentVersions'
         contentVersions_result = post(credentials, url, {})
-        #print(contentVersions_result)
         if contentVersions_result.status_code == 201:
             contentVersions_json = contentVersions_result._content.decode('utf8').replace("(\"", '(\\"').replace("\")", '\\")')
             contentVersions = json.loads(contentVersions_json)
             contentVersionsID = contentVersions['id']
-            #print(contentVersionsID)
 
             # encrypt file
             encrypted_data, fileEncryptionInfo = encryptPKG(file)
@@ -505,11 +501,9 @@ def main():
 
             files_url = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.mobileLobApp/contentVersions/' + contentVersionsID + '/files'
             files_result = post(credentials, files_url, mobileAppContentFile)
-            #print(files_result)
             if files_result.status_code == 201:
                 files_json = files_result._content.decode('utf8').replace("(\"", '(\\"').replace("\")", '\\")')
                 files_content = json.loads(files_json)
-                #print(files_content)
                 
                 files_contentID = files_content['id']
                 files_url = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.mobileLobApp/contentVersions/' + contentVersionsID + '/files/' + files_contentID
@@ -519,7 +513,6 @@ def main():
                     file = get(credentials, files_url)
                     file_json = file._content.decode('utf8').replace("(\"", '(\\"').replace("\")", '\\")')
                     file_content = json.loads(file_json)
-                    #print(file_content)
                     if file_content["uploadState"] == "azureStorageUriRequestSuccess":
                         break
                     if file_content["uploadState"] == "azureStorageUriRequestFailed":
@@ -551,8 +544,6 @@ def main():
                         block_ids.append(block_id)
                         uri = azureStorageUri + "&comp=block&blockid=" + block_id    
                         r = requests.put(uri, headers=headers, data=read_data.decode('iso-8859-1'))
-                        #print(uri)
-                        #print(r.status_code)
                         index += 1
                 
                 headers = {'Content-Type': 'application/xml'}   
@@ -562,8 +553,6 @@ def main():
                     xml += "<Latest>" + id + "</Latest>"
                 xml += """</BlockList>"""
                 r = requests.put(uri, headers=headers, data=xml)
-                #print(uri)
-                #print(r.status_code)
                 
                 os.unlink(filename)
 
@@ -571,7 +560,6 @@ def main():
                 commitData["fileEncryptionInfo"] = fileEncryptionInfo
                 commitFileUri = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.mobileLobApp/contentVersions/' + contentVersionsID + '/files/' + files_contentID + "/commit"
                 commitFile = post(credentials, commitFileUri, commitData)
-                #print(commitFile)
 
                 files_url = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.mobileLobApp/contentVersions/' + contentVersionsID + '/files/' + files_contentID
                 attempts = 20
@@ -598,7 +586,6 @@ def main():
 
                 files_url = '/deviceAppManagement/mobileApps/' + appID
                 commitApp_result = patch(credentials, files_url, commitAppBody)
-                #print(commitApp_result)
 
                 sleep(5)
 
