@@ -352,7 +352,7 @@ def main():
 
     credentials = getCredentials()
 
-    filename = Path(file).name
+    item_filename = Path(file).name
     title = ""
     description = ""
     publisher = ""
@@ -471,10 +471,10 @@ def main():
             icon = None
 
     if file.endswith(".pkg"):
-        macOSLobApp = getMacOSLobApp(title, description, publisher, privacyInformationUrl, informationUrl, owner, developer, notes, filename, bundleID, pkg_build, version, childApps, ignoreAppVersion, installAsManaged, icon)
+        macOSLobApp = getMacOSLobApp(title, description, publisher, privacyInformationUrl, informationUrl, owner, developer, notes, item_filename, bundleID, pkg_build, version, childApps, ignoreAppVersion, installAsManaged, icon)
     
     if file.endswith(".dmg"):
-        macOSLobApp = getMacOSDmgApp(title, description, publisher, privacyInformationUrl, informationUrl, owner, developer, notes, filename, bundleID, version, childApps, ignoreAppVersion, icon)
+        macOSLobApp = getMacOSDmgApp(title, description, publisher, privacyInformationUrl, informationUrl, owner, developer, notes, item_filename, bundleID, version, childApps, ignoreAppVersion, icon)
     
     mobildeapp_result = post(credentials, '/deviceAppManagement/mobileApps', macOSLobApp)
     if mobildeapp_result.status_code == 201:
@@ -497,7 +497,7 @@ def main():
                 binary_file.write(encrypted_data)
 
             # get mobileAppContentFile
-            mobileAppContentFile = getMobileAppContentFile(filename, file, filename)
+            mobileAppContentFile = getMobileAppContentFile(item_filename, file, filename)
 
             files_url = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.mobileLobApp/contentVersions/' + contentVersionsID + '/files'
             files_result = post(credentials, files_url, mobileAppContentFile)
