@@ -245,12 +245,12 @@ def getMacOSDmgApp(displayName, description, publisher, privacyInformationUrl, i
     return DmgApp
 
 
-def getMobileAppContentFile(pkg_filename, pkg_file, pkg_file_encr):
+def getMobileAppContentFile(filename, file, file_encr):
     mobileAppContentFile = {}
     mobileAppContentFile["@odata.type"] = "#microsoft.graph.mobileAppContentFile"
-    mobileAppContentFile["name"] = pkg_filename
-    mobileAppContentFile["size"] = os.path.getsize(pkg_file)
-    mobileAppContentFile["sizeEncrypted"] = os.path.getsize(pkg_file_encr)
+    mobileAppContentFile["name"] = filename
+    mobileAppContentFile["size"] = os.path.getsize(file)
+    mobileAppContentFile["sizeEncrypted"] = os.path.getsize(file_encr)
     mobileAppContentFile["manifest"] = None
     mobileAppContentFile["isDependency"] = False
     return mobileAppContentFile
@@ -345,68 +345,68 @@ def main():
         sys.exit(-1)
 
     #check if file is PKG or DMG
-    pkg_file = os.path.abspath(arguments[0])
-    if not pkg_file.endswith(".pkg") and not pkg_file.endswith(".dmg"):
-        print(pkg_file + " is not a PKG or a DMG")
+    file = os.path.abspath(arguments[0])
+    if not file.endswith(".pkg") and not file.endswith(".dmg"):
+        print(file + " is not a PKG or a DMG")
         sys.exit(1)
 
     credentials = getCredentials()
 
-    pkg_filename = Path(pkg_file).name
-    pkg_title = ""
-    pkg_description = ""
-    pkg_publisher = ""
-    pkg_version = ""
+    filename = Path(file).name
+    title = ""
+    description = ""
+    publisher = ""
+    version = ""
     pkg_build = ""
-    pkg_buildID = ""
-    pkg_privacyInformationUrl = ""
-    pkg_informationUrl = ""
-    pkg_owner = ""
-    pkg_developer = ""
-    pkg_notes = ""
-    pkg_ignoreAppVersion = True
-    pkg_installAsManaged = False
-    pkg_icon = None
+    buildID = ""
+    privacyInformationUrl = ""
+    informationUrl = ""
+    owner = ""
+    developer = ""
+    notes = ""
+    ignoreAppVersion = True
+    installAsManaged = False
+    icon = None
     childApps = []
 
     # get info from pkg
-    if pkg_file.endswith(".pkg"):
-        distribution_file = getPKGInfo(pkg_file)
+    if file.endswith(".pkg"):
+        distribution_file = getPKGInfo(file)
         title_list = distribution_file.getElementsByTagName("title")
         if len(title_list) > 0:
-            pkg_title = title_list[0].firstChild.nodeValue
+            title = title_list[0].firstChild.nodeValue
 
         #get info from json file if it exists in same directory or parent directory
-        source_file_dir = os.path.dirname(pkg_file) 
+        source_file_dir = os.path.dirname(file) 
         json_file = glob.glob(source_file_dir + "/*.json") + glob.glob(str(Path(source_file_dir).parents[0]) + "/*.json")
         if len(json_file) > 0:
             json_file = json_file[0]
             json_content = json.load(open(json_file))
-            pkg_title = json_content.get("displayName")
-            pkg_description = json_content.get("description")
-            pkg_publisher = json_content.get("publisher")
-            pkg_version = json_content.get("version")
-            pkg_buildID = json_content.get("bundle_id")
-            pkg_privacyInformationUrl = json_content.get("privacy_url")
-            pkg_informationUrl = json_content.get("info_url")
-            pkg_owner = json_content.get("owner")
-            pkg_developer = json_content.get("developer")
-            pkg_notes = json_content.get("notes")
-            pkg_ignoreAppVersion = json_content.get("ignoreAppVersion", True)
-            pkg_installAsManaged = json_content.get("installAsManaged", False)
-            pkg_icon = json_content.get("logo")
+            title = json_content.get("displayName")
+            description = json_content.get("description")
+            publisher = json_content.get("publisher")
+            version = json_content.get("version")
+            buildID = json_content.get("bundle_id")
+            privacyInformationUrl = json_content.get("privacy_url")
+            informationUrl = json_content.get("info_url")
+            owner = json_content.get("owner")
+            developer = json_content.get("developer")
+            notes = json_content.get("notes")
+            ignoreAppVersion = json_content.get("ignoreAppVersion", True)
+            installAsManaged = json_content.get("installAsManaged", False)
+            icon = json_content.get("logo")
 
         pkg_ref = distribution_file.getElementsByTagName("pkg-ref")
         for item in pkg_ref:
             if item.getAttribute("packageIdentifier"):
-                pkg_buildID = item.getAttribute("packageIdentifier")
-                pkg_version = item.getAttribute("version")
+                buildID = item.getAttribute("packageIdentifier")
+                version = item.getAttribute("version")
                 pkg_build = item.getAttribute("version")
-                childApps.append(getChildApp(pkg_buildID, pkg_version, pkg_version))
+                childApps.append(getChildApp(buildID, version, version))
     
     # get info from dmg
-    if pkg_file.endswith(".dmg"):
-        mounted_dmg_path = mountDMG(pkg_file)
+    if file.endswith(".dmg"):
+        mounted_dmg_path = mountDMG(file)
         app_path = glob.glob(mounted_dmg_path + "/*.app")[0]
 
         plist_file = app_path + "/Contents/Info.plist"
@@ -414,32 +414,32 @@ def main():
 
         unmountDMG(mounted_dmg_path)
 
-        pkg_title = plist.get("CFBundleName")
-        pkg_version = plist.get("CFBundleShortVersionString")
+        title = plist.get("CFBundleName")
+        version = plist.get("CFBundleShortVersionString")
         pkg_build = plist.get("CFBundleVersion")
-        pkg_buildID = plist.get("CFBundleIdentifier")
+        buildID = plist.get("CFBundleIdentifier")
 
         #get info from json
-        source_file_dir = os.path.dirname(pkg_file) 
+        source_file_dir = os.path.dirname(file) 
         json_file = glob.glob(source_file_dir + "/*.json")
         if len(json_file) > 0:
             json_file = json_file[0]
             json_content = json.load(open(json_file))
-            pkg_title = json_content.get("displayName")
-            pkg_description = json_content.get("description")
-            pkg_publisher = json_content.get("publisher")
-            pkg_version = json_content.get("version")
-            pkg_buildID = json_content.get("bundle_id")
-            pkg_privacyInformationUrl = json_content.get("privacy_url")
-            pkg_informationUrl = json_content.get("info_url")
-            pkg_owner = json_content.get("owner")
-            pkg_developer = json_content.get("developer")
-            pkg_notes = json_content.get("notes")
-            pkg_ignoreAppVersion = json_content.get("ignoreAppVersion", True)
-            pkg_installAsManaged = json_content.get("installAsManaged", False)
-            pkg_icon = json_content.get("logo")
+            title = json_content.get("displayName")
+            description = json_content.get("description")
+            publisher = json_content.get("publisher")
+            version = json_content.get("version")
+            buildID = json_content.get("bundle_id")
+            privacyInformationUrl = json_content.get("privacy_url")
+            informationUrl = json_content.get("info_url")
+            owner = json_content.get("owner")
+            developer = json_content.get("developer")
+            notes = json_content.get("notes")
+            ignoreAppVersion = json_content.get("ignoreAppVersion", True)
+            installAsManaged = json_content.get("installAsManaged", False)
+            icon = json_content.get("logo")
 
-        childApps.append(getIncludedApp(pkg_buildID, pkg_version))
+        childApps.append(getIncludedApp(buildID, version))
 
     # clear screen
     cls()
@@ -449,32 +449,32 @@ def main():
     print("")
 
     # get user input
-    pkg_title = input_with_prefill("name: ", pkg_title)
-    pkg_description = input_with_prefill("discription: ", pkg_description)
-    pkg_publisher = input_with_prefill("publisher: ", pkg_publisher)
-    pkg_version = input_with_prefill("version: ", pkg_version)
-    pkg_icon = input_with_prefill("icon: ", pkg_icon)
+    title = input_with_prefill("name: ", title)
+    description = input_with_prefill("discription: ", description)
+    publisher = input_with_prefill("publisher: ", publisher)
+    version = input_with_prefill("version: ", version)
+    icon = input_with_prefill("icon: ", icon)
     pkg_build = input_with_prefill("build: ", pkg_build)
-    pkg_buildID = input_with_prefill("package identifier: ", pkg_buildID)
-    pkg_ignoreAppVersion = input_with_prefill("ignoreAppVersion: ", str(pkg_ignoreAppVersion)) == "True"
-    pkg_installAsManaged = input_with_prefill("installAsManaged: ", str(pkg_installAsManaged)) == "False"
+    buildID = input_with_prefill("package identifier: ", buildID)
+    ignoreAppVersion = input_with_prefill("ignoreAppVersion: ", str(ignoreAppVersion)) == "True"
+    installAsManaged = input_with_prefill("installAsManaged: ", str(installAsManaged)) == "False"
 
     while input("Do you want to start upload? [y/n]: ") != "y":
         sys.exit(0)
 
     # get icon 
-    if pkg_icon:
-        icon_list = glob.glob(source_file_dir + "/" + pkg_icon) + glob.glob(str(Path(source_file_dir).parents[0]) + "/" + pkg_icon)
+    if icon:
+        icon_list = glob.glob(source_file_dir + "/" + icon) + glob.glob(str(Path(source_file_dir).parents[0]) + "/" + icon)
         if len(icon_list) > 0:
-            pkg_icon = icon_list[0]
+            icon = icon_list[0]
         else:
-            pkg_icon = None
+            icon = None
 
-    if pkg_file.endswith(".pkg"):
-        macOSLobApp = getMacOSLobApp(pkg_title, pkg_description, pkg_publisher, pkg_privacyInformationUrl, pkg_informationUrl, pkg_owner, pkg_developer, pkg_notes, pkg_filename, pkg_buildID, pkg_build, pkg_version, childApps, pkg_ignoreAppVersion, pkg_installAsManaged, pkg_icon)
+    if file.endswith(".pkg"):
+        macOSLobApp = getMacOSLobApp(title, description, publisher, privacyInformationUrl, informationUrl, owner, developer, notes, filename, buildID, pkg_build, version, childApps, ignoreAppVersion, installAsManaged, icon)
     
-    if pkg_file.endswith(".dmg"):
-        macOSLobApp = getMacOSDmgApp(pkg_title, pkg_description, pkg_publisher, pkg_privacyInformationUrl, pkg_informationUrl, pkg_owner, pkg_developer, pkg_notes, pkg_filename, pkg_buildID, pkg_version, childApps, pkg_ignoreAppVersion, pkg_icon)
+    if file.endswith(".dmg"):
+        macOSLobApp = getMacOSDmgApp(title, description, publisher, privacyInformationUrl, informationUrl, owner, developer, notes, filename, buildID, version, childApps, ignoreAppVersion, icon)
     
     mobildeapp_result = post(credentials, '/deviceAppManagement/mobileApps', macOSLobApp)
     #print(mobildeapp_result)
@@ -494,14 +494,14 @@ def main():
             #print(contentVersionsID)
 
             # encrypt file
-            encrypted_data, fileEncryptionInfo = encryptPKG(pkg_file)
+            encrypted_data, fileEncryptionInfo = encryptPKG(file)
             new_file, filename = tempfile.mkstemp()
             with open(new_file, "wb") as binary_file:
                 # Write bytes to file
                 binary_file.write(encrypted_data)
 
             # get mobileAppContentFile
-            mobileAppContentFile = getMobileAppContentFile(pkg_filename, pkg_file, filename)
+            mobileAppContentFile = getMobileAppContentFile(filename, file, filename)
 
             files_url = '/deviceAppManagement/mobileApps/' + appID + '/microsoft.graph.mobileLobApp/contentVersions/' + contentVersionsID + '/files'
             files_result = post(credentials, files_url, mobileAppContentFile)
