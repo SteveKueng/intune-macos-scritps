@@ -358,7 +358,7 @@ def main():
     publisher = ""
     version = ""
     pkg_build = ""
-    buildID = ""
+    bundleID = ""
     privacyInformationUrl = ""
     informationUrl = ""
     owner = ""
@@ -386,7 +386,7 @@ def main():
             description = json_content.get("description")
             publisher = json_content.get("publisher")
             version = json_content.get("version")
-            buildID = json_content.get("bundle_id")
+            bundleID = json_content.get("bundle_id")
             privacyInformationUrl = json_content.get("privacy_url")
             informationUrl = json_content.get("info_url")
             owner = json_content.get("owner")
@@ -399,10 +399,10 @@ def main():
         pkg_ref = distribution_file.getElementsByTagName("pkg-ref")
         for item in pkg_ref:
             if item.getAttribute("packageIdentifier"):
-                buildID = item.getAttribute("packageIdentifier")
+                bundleID = item.getAttribute("packageIdentifier")
                 version = item.getAttribute("version")
                 pkg_build = item.getAttribute("version")
-                childApps.append(getChildApp(buildID, version, version))
+                childApps.append(getChildApp(bundleID, version, version))
     
     # get info from dmg
     if file.endswith(".dmg"):
@@ -417,7 +417,7 @@ def main():
         title = plist.get("CFBundleName")
         version = plist.get("CFBundleShortVersionString")
         pkg_build = plist.get("CFBundleVersion")
-        buildID = plist.get("CFBundleIdentifier")
+        bundleID = plist.get("CFBundleIdentifier")
 
         #get info from json
         source_file_dir = os.path.dirname(file) 
@@ -429,7 +429,7 @@ def main():
             description = json_content.get("description")
             publisher = json_content.get("publisher")
             version = json_content.get("version")
-            buildID = json_content.get("bundle_id")
+            bundleID = json_content.get("bundle_id")
             privacyInformationUrl = json_content.get("privacy_url")
             informationUrl = json_content.get("info_url")
             owner = json_content.get("owner")
@@ -439,7 +439,7 @@ def main():
             installAsManaged = json_content.get("installAsManaged", False)
             icon = json_content.get("logo")
 
-        childApps.append(getIncludedApp(buildID, version))
+        childApps.append(getIncludedApp(bundleID, version))
 
     # clear screen
     cls()
@@ -455,7 +455,7 @@ def main():
     version = input_with_prefill("version: ", version)
     icon = input_with_prefill("icon: ", icon)
     pkg_build = input_with_prefill("build: ", pkg_build)
-    buildID = input_with_prefill("package identifier: ", buildID)
+    bundleID = input_with_prefill("package identifier: ", bundleID)
     ignoreAppVersion = input_with_prefill("ignoreAppVersion: ", str(ignoreAppVersion)) == "True"
     installAsManaged = input_with_prefill("installAsManaged: ", str(installAsManaged)) == "False"
 
@@ -471,10 +471,10 @@ def main():
             icon = None
 
     if file.endswith(".pkg"):
-        macOSLobApp = getMacOSLobApp(title, description, publisher, privacyInformationUrl, informationUrl, owner, developer, notes, filename, buildID, pkg_build, version, childApps, ignoreAppVersion, installAsManaged, icon)
+        macOSLobApp = getMacOSLobApp(title, description, publisher, privacyInformationUrl, informationUrl, owner, developer, notes, filename, bundleID, pkg_build, version, childApps, ignoreAppVersion, installAsManaged, icon)
     
     if file.endswith(".dmg"):
-        macOSLobApp = getMacOSDmgApp(title, description, publisher, privacyInformationUrl, informationUrl, owner, developer, notes, filename, buildID, version, childApps, ignoreAppVersion, icon)
+        macOSLobApp = getMacOSDmgApp(title, description, publisher, privacyInformationUrl, informationUrl, owner, developer, notes, filename, bundleID, version, childApps, ignoreAppVersion, icon)
     
     mobildeapp_result = post(credentials, '/deviceAppManagement/mobileApps', macOSLobApp)
     if mobildeapp_result.status_code == 201:
