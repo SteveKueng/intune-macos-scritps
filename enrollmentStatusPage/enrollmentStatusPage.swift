@@ -20,7 +20,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var button1: NSButton!
     var installTime = 900.0
     var title = "Microsoft Intune"
-    var blure = false
+    var blendWindow = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // get arguments
@@ -29,7 +29,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             installTime = Double(arguments[1])!
         }
         if arguments.count > 2 {
-            blure = arguments[2] == "blure"
+            blendWindow = arguments[2] == "blendWindow"
         }
         if arguments.count > 3 {
             title = arguments[3]
@@ -43,7 +43,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let visualEffect = NSVisualEffectView()
         visualEffect.blendingMode = .behindWindow
-        if (blure) {
+        if (blendWindow) {
             backgroundWindow.contentView = visualEffect
         } else {
             backgroundWindow.backgroundColor = .black
