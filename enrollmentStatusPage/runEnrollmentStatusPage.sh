@@ -16,6 +16,7 @@ metadir="/Library/Intune"
 metafile="${metadir}/${appname}.meta"
 officeInstallTimeout=200 # change the number of seconds you want to wait for Office to install
 appInstallTimeout=200 # change the number of seconds you want to wait for apps to install
+enrollmentStatusPageTimeout=$officeInstallTimeout+$appInstallTimeout
 enrollmentStatusPage="${metadir}/${appname}"
 
 # itemsToInstall is an array of apps to install. Add or remove apps as needed
@@ -92,7 +93,7 @@ function setenrollmentStatusPage() {
 
 function startenrollmentStatusPage() {
   echo "$(date) | Show ${appname}"
-  "$enrollmentStatusPage" 60 &
+  "$enrollmentStatusPage" $enrollmentStatusPageTimeout &
 }
 
 function stopenrollmentStatusPage() {
