@@ -30,14 +30,12 @@ To do it the same way as I did in runIntuneStatusPage.sh, it must be base64 enco
 
 ```bash
 cat IntuneStatusPage | base64 
-
 ```
 
 This can be decoded with the following command:
 
 ```bash
-cat IntuneStatusPage |  -decode 
-
+echo "<base64 string>" | base64 --decode > "<path>"
 ```
 
 ## screenshots
