@@ -14,9 +14,11 @@ logdir="/Library/Logs/Microsoft/Intune/Scripts/${appname}"
 log="${logdir}/${appname}.log"
 metadir="/Library/Intune"
 metafile="${metadir}/${appname}.meta"
-officeInstallTimeout=200 # change the number of seconds you want to wait for Office to install
-appInstallTimeout=200 # change the number of seconds you want to wait for apps to install
-enrollmentStatusPageTimeout=$officeInstallTimeout+$appInstallTimeout
+officeInstallTimeout=900 # change the number of seconds you want to wait for Office to install
+appInstallTimeout=900 # change the number of seconds you want to wait for apps to install
+enrollmentStatusPageTimeout=$(($officeInstallTimeout + $appInstallTimeout))
+
+echo $enrollmentStatusPageTimeout
 enrollmentStatusPage="${metadir}/${appname}"
 
 # itemsToInstall is an array of apps to install. Add or remove apps as needed
